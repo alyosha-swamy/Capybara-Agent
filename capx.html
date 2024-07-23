@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capybara Dating App - Personality Quiz</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0e6d2;
+            color: #5a3921;
+            line-height: 1.6;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #ff6b35;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+        #question, #result {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            background-color: #fffaf0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #answer {
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 2px solid #ff6b35;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+        #answer:focus {
+            outline: none;
+            border-color: #ff4500;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            background-color: #ff6b35;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+        }
+        button:hover {
+            background-color: #ff4500;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        #history {
+            margin-top: 30px;
+        }
+        .history-item {
+            background-color: #fffaf0;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .capybara-img {
+            max-width: 200px;
+            display: block;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+        }
+        .quiz-progress {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: 600;
+            color: #5a3921;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="https://placekitten.com/200/200" alt="Cute Capybara" class="capybara-img">
+        <h1>Capybara Dating App Personality Quiz</h1>
+        <div id="quiz">
+            <div class="quiz-progress">Question <span id="current-question">1</span> of 5</div>
+            <div id="question"></div>
+            <textarea id="answer" rows="4" placeholder="Type your answer here... Be as honest as a capybara!"></textarea>
+            <button id="submit">Next Question</button>
+        </div>
+        <div id="result" style="display: none;"></div>
+        <div id="history"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        let questions = [];
+        let answers = [];
+        let currentQuestion = '';
+
+        async function getNextQuestion() {
+            const response = await fetch(`${API_URL}/generate_question`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ previous_questions: questions, previous_answers: answers }),
+            });
+            const data = await response.json();
+            return data.question;
+        }
+
+        async function classifyPersonality() {
+            const response = await fetch(`${API_URL}/classify_personality`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ questions, answers }),
+            });
+            const data = await response.json();
+            return data;
+        }
+
+        async function startQuiz() {
+            currentQuestion = await getNextQuestion();
+            document.getElementById('question').textContent = currentQuestion;
+        }
+
+        document.getElementById('submit').addEventListener('click', async () => {
+            const answer = document.getElementById('answer').value.trim();
+            if (answer) {
+                questions.push(currentQuestion);
+                answers.push(answer);
+                document.getElementById('history').innerHTML += `
+                    <div class="history-item">
+                        <p><strong>Q: ${currentQuestion}</strong></p>
+                        <p>A: ${answer}</p>
+                    </div>
+                `;
+                document.getElementById('answer').value = '';
+
+                if (questions.length < 5) {
+                    currentQuestion = await getNextQuestion();
+                    document.getElementById('question').textContent = currentQuestion;
+                    document.getElementById('current-question').textContent = questions.length + 1;
+                } else {
+                    const result = await classifyPersonality();
+                    document.getElementById('quiz').style.display = 'none';
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('result').innerHTML = `
+                        <h2>Your Capybara Dating Personality:</h2>
+                        <p>${result.personality}</p>
+                        <p>Your personality summary has been saved to: ${result.summary_file}</p>
+                        <button onclick="location.reload()">Take Quiz Again</button>
+                    `;
+                }
+            }
+        });
+
+        startQuiz();
+    </script>
+</body>
+</html>
