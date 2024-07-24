@@ -4,7 +4,7 @@ Capybara Agent is an interactive personality quiz that uses AI to generate quest
 
 ## Introduction Video
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/Zn7A01MHLOw?si=lOZcZbOdiJtU60pL" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[![Capybara Agent Introduction](https://img.youtube.com/vi/Zn7A01MHLOw/0.jpg)](https://www.youtube.com/watch?v=Zn7A01MHLOw)
 
 ## Features
 
