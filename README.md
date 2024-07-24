@@ -19,7 +19,7 @@ Capybara Agent is an interactive personality quiz that uses AI to generate quest
 - Flask
 - Flask-CORS
 - LangChain
-- OpenAI API key
+- Capx API key
 
 ## Installation
 
