@@ -25,7 +25,7 @@ Capybara Agent is an interactive personality quiz that uses AI to generate quest
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/capybara-agent.git
+   git clone https://github.com/alyosha-swamy/capybara-agent.git
    cd capybara-agent
    ```
 2. Install the required packages:
@@ -55,8 +55,6 @@ Capybara Agent is an interactive personality quiz that uses AI to generate quest
 - `requirements.txt`: List of Python dependencies
 - `README.md`: This file
 - `capybara.mp4`: Introductory video about the Capybara Agent
-
-## Contributing
 
 Contributions to improve the Capybara Agent are welcome! Please feel free to submit pull requests or open issues to discuss potential enhancements.
 
