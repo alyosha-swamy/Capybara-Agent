@@ -1,6 +1,6 @@
 # Capybara Agent: AI-Powered Personality Quiz
 
-Capybara Agent is an interactive personality quiz that uses AI to generate questions and classify users' personalities. It's built with Python (Flask) for the backend and HTML/JavaScript for the frontend.
+Capybara Agent is an AI-powered conversational agent that utilizes carefully curated knowledge from enneagram, Big Five, and other personality frameworks to dynamically generate personalized questions, analyze user responses, and produce nuanced personality classifications through an interactive frontend.
 
 ## Introduction Video
 
