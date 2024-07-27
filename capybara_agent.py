@@ -4,6 +4,9 @@ import logging
 from typing import List, Dict
 import math
 import faiss
+import hashlib
+import hmac
+import time
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_experimental.generative_agents import GenerativeAgent, GenerativeAgentMemory
 from langchain.retrievers import TimeWeightedVectorStoreRetriever
@@ -17,6 +20,11 @@ CORS(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Configuration
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
 
 LLM = ChatOpenAI(max_tokens=1500)
 
@@ -136,6 +144,7 @@ Dating Advice: [brief advice based on their personality type]
         personality_summary = response[1]
         logger.info(f"Generated personality summary: {personality_summary}")
 
+        # Save the personality summary to a text file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"personality_summary_{telegram_data.get('id')}_{timestamp}.txt"
         with open(filename, "w") as f:
@@ -156,6 +165,42 @@ Dating Advice: [brief advice based on their personality type]
 question_agent = QuestionGeneratorAgent("CapybaraQuestionBot", 25, "curious, romantic, empathetic")
 classifier_agent = PersonalityClassifierAgent("CapybaraMatchBot", 30, "insightful, compassionate, intuitive")
 
+def validate_telegram_data(data: Dict) -> bool:
+    if 'hash' not in data:
+        logger.error("No hash found in Telegram data")
+        return False
+
+    received_hash = data['hash']
+    
+    data_to_check = data.copy()
+    data_to_check.pop('hash', None)
+    data_check_string = '\n'.join(sorted(f'{k}={v}' for k, v in data_to_check.items()))
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    
+    if computed_hash != received_hash:
+        logger.error("Invalid hash in Telegram data")
+        return False
+    
+
+    if time.time() - int(data['auth_date']) > 3600:
+        logger.error("Telegram data is outdated")
+        return False
+    
+    return True
+
+@app.route('/validate-telegram-login', methods=['POST'])
+def validate_telegram_login():
+    data = request.json
+    logger.info(f"Received Telegram login data for validation: {data}")
+    
+    if validate_telegram_data(data):
+        logger.info("Telegram login data validated successfully")
+        return jsonify({"isValid": True})
+    else:
+        logger.warning("Telegram login data validation failed")
+        return jsonify({"isValid": False}), 400
+
 @app.route('/generate_question', methods=['POST'])
 def generate_question():
     logger.info("Received request to generate question")
@@ -163,6 +208,11 @@ def generate_question():
     previous_questions = data.get('previous_questions', [])
     previous_answers = data.get('previous_answers', [])
     telegram_data = data.get('telegram_data', {})
+
+    if not validate_telegram_data(telegram_data):
+        logger.error("Invalid Telegram data in question generation request")
+        return jsonify({"error": "Invalid Telegram data"}), 400
+
     logger.debug(f"Previous questions: {previous_questions}")
     logger.debug(f"Previous answers: {previous_answers}")
     logger.debug(f"Telegram data: {telegram_data}")
@@ -178,6 +228,11 @@ def classify_personality():
     questions = data.get('questions', [])
     answers = data.get('answers', [])
     telegram_data = data.get('telegram_data', {})
+
+    if not validate_telegram_data(telegram_data):
+        logger.error("Invalid Telegram data in personality classification request")
+        return jsonify({"error": "Invalid Telegram data"}), 400
+
     logger.debug(f"Questions for classification: {questions}")
     logger.debug(f"Answers for classification: {answers}")
     logger.debug(f"Telegram data: {telegram_data}")
