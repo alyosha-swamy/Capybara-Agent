@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    container_name: capybara_postgres
+    environment:
+      POSTGRES_DB: capybara_dating_app
+      POSTGRES_USER: capybara_user
+      POSTGRES_PASSWORD: capybara_password
+      NEW_POSTGRES_PASSWORD: muruga
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: bash -c "psql -U capybara_user -d capybara_dating_app -c \"ALTER USER capybara_user WITH PASSWORD '$$NEW_POSTGRES_PASSWORD';\""
+
+volumes:
+  postgres_data:
+
