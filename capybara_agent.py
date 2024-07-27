@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
-from typing import List
+from typing import List, Dict
 import math
 import faiss
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -15,7 +15,6 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -74,10 +73,11 @@ class QuestionGeneratorAgent(GenerativeAgent):
         super().__init__(name=name, age=age, traits=traits, status="active", memory=memory, llm=LLM)
         logger.info(f"Initialized QuestionGeneratorAgent: {name}, age {age}, traits: {traits}")
 
-    def generate_question(self, previous_questions: List[str], previous_answers: List[str]) -> str:
-        logger.info("Generating new question")
+    def generate_question(self, previous_questions: List[str], previous_answers: List[str], telegram_data: Dict) -> str:
+        logger.info(f"Generating new question for Telegram user: {telegram_data.get('id')}")
         logger.debug(f"Previous questions: {previous_questions}")
         logger.debug(f"Previous answers: {previous_answers}")
+        logger.debug(f"Telegram data: {telegram_data}")
         
         context = "\n".join([f"Q: {q}\nA: {a}" for q, a in zip(previous_questions, previous_answers)])
         templates = "\n".join([f"- {template}" for template in QUESTION_TEMPLATES])
@@ -110,10 +110,11 @@ class PersonalityClassifierAgent(GenerativeAgent):
         super().__init__(name=name, age=age, traits=traits, status="active", memory=memory, llm=LLM)
         logger.info(f"Initialized PersonalityClassifierAgent: {name}, age {age}, traits: {traits}")
 
-    def classify_personality(self, questions: List[str], answers: List[str]) -> dict:
-        logger.info("Classifying personality")
+    def classify_personality(self, questions: List[str], answers: List[str], telegram_data: Dict) -> dict:
+        logger.info(f"Classifying personality for Telegram user: {telegram_data.get('id')}")
         logger.debug(f"Questions for classification: {questions}")
         logger.debug(f"Answers for classification: {answers}")
+        logger.debug(f"Telegram data: {telegram_data}")
         
         context = "\n".join([f"Q: {q}\nA: {a}" for q, a in zip(questions, answers)])
         personality_types = "\n".join([f"- {type}: {desc}" for type, desc in PERSONALITY_TYPES.items()])
@@ -135,12 +136,13 @@ Dating Advice: [brief advice based on their personality type]
         personality_summary = response[1]
         logger.info(f"Generated personality summary: {personality_summary}")
 
-        # Save the personality summary to a text file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"personality_summary_{timestamp}.txt"
+        filename = f"personality_summary_{telegram_data.get('id')}_{timestamp}.txt"
         with open(filename, "w") as f:
             f.write("Capybara Dating App - Personality Summary\n")
             f.write("=========================================\n\n")
+            f.write(f"Telegram User ID: {telegram_data.get('id')}\n")
+            f.write(f"Username: {telegram_data.get('username')}\n\n")
             f.write("Questions and Answers:\n")
             for q, a in zip(questions, answers):
                 f.write(f"Q: {q}\n")
@@ -160,10 +162,12 @@ def generate_question():
     data = request.json
     previous_questions = data.get('previous_questions', [])
     previous_answers = data.get('previous_answers', [])
+    telegram_data = data.get('telegram_data', {})
     logger.debug(f"Previous questions: {previous_questions}")
     logger.debug(f"Previous answers: {previous_answers}")
+    logger.debug(f"Telegram data: {telegram_data}")
     
-    question = question_agent.generate_question(previous_questions, previous_answers)
+    question = question_agent.generate_question(previous_questions, previous_answers, telegram_data)
     logger.info(f"Generated question: {question}")
     return jsonify({'question': question})
 
@@ -173,10 +177,12 @@ def classify_personality():
     data = request.json
     questions = data.get('questions', [])
     answers = data.get('answers', [])
+    telegram_data = data.get('telegram_data', {})
     logger.debug(f"Questions for classification: {questions}")
     logger.debug(f"Answers for classification: {answers}")
+    logger.debug(f"Telegram data: {telegram_data}")
     
-    result = classifier_agent.classify_personality(questions, answers)
+    result = classifier_agent.classify_personality(questions, answers, telegram_data)
     logger.info(f"Personality classification result: {result}")
     return jsonify(result)
 
