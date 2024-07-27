@@ -1,4 +1,3 @@
-@ -1,247 +0,0 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
