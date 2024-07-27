@@ -15,6 +15,8 @@ import hmac
 import hashlib
 import json
 from urllib.parse import parse_qs, unquote
+import psycopg2
+from psycopg2.extras import Json
 
 app = Flask(__name__)
 CORS(app)
@@ -26,6 +28,22 @@ LLM = ChatOpenAI(max_tokens=1500)
 
 # Telegram Bot Token (use environment variable in production)
 BOT_TOKEN = os.environ.get('BOT_TOKEN', "dummy_bot_token_for_testing_1234567890")
+
+# PostgreSQL connection parameters
+DB_NAME = "capybara_dating_app"
+DB_USER = "capybara_user"
+DB_PASSWORD = "capybara_password"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+
+def get_db_connection():
+    return psycopg2.connect(
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT
+    )
 
 def relevance_score_fn(score: float) -> float:
     return 1.0 - score / math.sqrt(2)
@@ -143,22 +161,39 @@ Dating Advice: [brief advice based on their personality type]
         personality_summary = response[1]
         logger.info(f"Generated personality summary: {personality_summary}")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"personality_summary_{telegram_data.get('id')}_{timestamp}.txt"
-        with open(filename, "w") as f:
-            f.write("Capybara Dating App - Personality Summary\n")
-            f.write("=========================================\n\n")
-            f.write(f"Telegram User ID: {telegram_data.get('id')}\n")
-            f.write(f"Username: {telegram_data.get('username')}\n\n")
-            f.write("Questions and Answers:\n")
-            for q, a in zip(questions, answers):
-                f.write(f"Q: {q}\n")
-                f.write(f"A: {a}\n\n")
-            f.write("Personality Classification:\n")
-            f.write(personality_summary)
-        logger.info(f"Saved personality summary to file: {filename}")
+        # Parse the personality summary
+        lines = personality_summary.split('\n')
+        personality_type = next((line.split(': ')[1] for line in lines if line.startswith('Personality Type:')), '')
+        explanation = next((line.split(': ')[1] for line in lines if line.startswith('Explanation:')), '')
+        compatible_types = next((line.split(': ')[1].split(', ') for line in lines if line.startswith('Compatible Types:')), [])
+        dating_advice = next((line.split(': ')[1] for line in lines if line.startswith('Dating Advice:')), '')
 
-        return {"personality": personality_summary, "summary_file": filename}
+        # Store in the database
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO personality_summaries 
+                        (telegram_user_id, username, personality_type, explanation, compatible_types, dating_advice, questions, answers)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                    """, (
+                        telegram_data.get('id'),
+                        telegram_data.get('username'),
+                        personality_type,
+                        explanation,
+                        compatible_types,
+                        dating_advice,
+                        questions,
+                        answers
+                    ))
+                    summary_id = cur.fetchone()[0]
+                    conn.commit()
+            logger.info(f"Stored personality summary in database with ID: {summary_id}")
+        except Exception as e:
+            logger.error(f"Error storing personality summary in database: {e}")
+
+        return {"personality": personality_summary, "summary_id": summary_id}
 
 question_agent = QuestionGeneratorAgent("CapybaraQuestionBot", 25, "curious, romantic, empathetic")
 classifier_agent = PersonalityClassifierAgent("CapybaraMatchBot", 30, "insightful, compassionate, intuitive")
@@ -191,6 +226,33 @@ def telegram_auth():
     
     parsed_data = dict(parse_qs(init_data))
     user_data = json.loads(unquote(parsed_data['user'][0]))
+    
+    # Store user data in the database
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO users (telegram_user_id, first_name, last_name, photo_url, auth_date)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (telegram_user_id) 
+                    DO UPDATE SET 
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name,
+                        photo_url = EXCLUDED.photo_url,
+                        auth_date = EXCLUDED.auth_date
+                    RETURNING id
+                """, (
+                    user_data['id'],
+                    user_data['first_name'],
+                    user_data.get('last_name'),
+                    user_data.get('photo_url'),
+                    datetime.fromtimestamp(int(parsed_data['auth_date'][0]))
+                ))
+                user_id = cur.fetchone()[0]
+                conn.commit()
+        logger.info(f"Stored or updated user data in database with ID: {user_id}")
+    except Exception as e:
+        logger.error(f"Error storing user data in database: {e}")
     
     return jsonify({
         'id': user_data['id'],
@@ -241,6 +303,45 @@ def classify_personality():
     result = classifier_agent.classify_personality(questions, answers, telegram_data)
     logger.info(f"Personality classification result: {result}")
     return jsonify(result)
+
+
+@app.route('/get_personality_summary', methods=['POST'])
+def get_personality_summary():
+    data = request.json
+    init_data = data.get('initData')
+
+    if not validate_telegram_data(init_data):
+        logger.warning("Invalid Telegram data received")
+        return jsonify({'error': 'Invalid data'}), 400
+
+    parsed_data = dict(parse_qs(init_data))
+    telegram_user_id = parsed_data.get('id')[0]
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT personality_type, explanation, compatible_types, dating_advice
+                    FROM personality_summaries
+                    WHERE telegram_user_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (telegram_user_id,))
+                result = cur.fetchone()
+
+        if result:
+            personality_type, explanation, compatible_types, dating_advice = result
+            return jsonify({
+                'personality_type': personality_type,
+                'explanation': explanation,
+                'compatible_types': compatible_types,
+                'dating_advice': dating_advice
+            })
+        else:
+            return jsonify({'error': 'No personality summary found for this user'}), 404
+    except Exception as e:
+        logger.error(f"Error retrieving personality summary: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     logger.info("Starting Capybara Dating App API")
