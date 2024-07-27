@@ -4,9 +4,6 @@ import logging
 from typing import List, Dict
 import math
 import faiss
-import hashlib
-import hmac
-import time
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_experimental.generative_agents import GenerativeAgent, GenerativeAgentMemory
 from langchain.retrievers import TimeWeightedVectorStoreRetriever
@@ -14,6 +11,10 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from datetime import datetime
 import os
+import hmac
+import hashlib
+import json
+from urllib.parse import parse_qs, unquote
 
 app = Flask(__name__)
 CORS(app)
@@ -21,12 +22,10 @@ CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Configuration
-BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
-
 LLM = ChatOpenAI(max_tokens=1500)
+
+# Telegram Bot Token (use environment variable in production)
+BOT_TOKEN = os.environ.get('BOT_TOKEN', "dummy_bot_token_for_testing_1234567890")
 
 def relevance_score_fn(score: float) -> float:
     return 1.0 - score / math.sqrt(2)
@@ -144,7 +143,6 @@ Dating Advice: [brief advice based on their personality type]
         personality_summary = response[1]
         logger.info(f"Generated personality summary: {personality_summary}")
 
-        # Save the personality summary to a text file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"personality_summary_{telegram_data.get('id')}_{timestamp}.txt"
         with open(filename, "w") as f:
@@ -165,54 +163,56 @@ Dating Advice: [brief advice based on their personality type]
 question_agent = QuestionGeneratorAgent("CapybaraQuestionBot", 25, "curious, romantic, empathetic")
 classifier_agent = PersonalityClassifierAgent("CapybaraMatchBot", 30, "insightful, compassionate, intuitive")
 
-def validate_telegram_data(data: Dict) -> bool:
-    if 'hash' not in data:
-        logger.error("No hash found in Telegram data")
+def generate_secret_key(bot_token: str) -> bytes:
+    return hmac.new("WebAppData".encode(), bot_token.encode(), hashlib.sha256).digest()
+
+def validate_telegram_data(init_data: str) -> bool:
+    try:
+        parsed_data = dict(parse_qs(init_data))
+        received_hash = parsed_data.pop('hash', None)
+        if not received_hash:
+            return False
+        data_check_string = '\n'.join([f"{k}={v[0]}" for k, v in sorted(parsed_data.items())])
+        secret_key = generate_secret_key(BOT_TOKEN)
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        return calculated_hash == received_hash[0]
+    except Exception as e:
+        logger.error(f"Error validating Telegram data: {e}")
         return False
 
-    received_hash = data['hash']
-    
-    data_to_check = data.copy()
-    data_to_check.pop('hash', None)
-    data_check_string = '\n'.join(sorted(f'{k}={v}' for k, v in data_to_check.items()))
-    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-    
-    if computed_hash != received_hash:
-        logger.error("Invalid hash in Telegram data")
-        return False
-    
-
-    if time.time() - int(data['auth_date']) > 3600:
-        logger.error("Telegram data is outdated")
-        return False
-    
-    return True
-
-@app.route('/validate-telegram-login', methods=['POST'])
-def validate_telegram_login():
+@app.route('/tg-auth', methods=['POST'])
+def telegram_auth():
     data = request.json
-    logger.info(f"Received Telegram login data for validation: {data}")
+    init_data = data.get('initData')
     
-    if validate_telegram_data(data):
-        logger.info("Telegram login data validated successfully")
-        return jsonify({"isValid": True})
-    else:
-        logger.warning("Telegram login data validation failed")
-        return jsonify({"isValid": False}), 400
+    if not validate_telegram_data(init_data):
+        logger.warning("Invalid Telegram data received")
+        return jsonify({'error': 'Invalid data'}), 403
+    
+    parsed_data = dict(parse_qs(init_data))
+    user_data = json.loads(unquote(parsed_data['user'][0]))
+    
+    return jsonify({
+        'id': user_data['id'],
+        'first_name': user_data['first_name'],
+        'username': user_data.get('username'),
+        'photo_url': user_data.get('photo_url'),
+        'auth_date': parsed_data['auth_date'][0]
+    })
 
 @app.route('/generate_question', methods=['POST'])
 def generate_question():
     logger.info("Received request to generate question")
     data = request.json
+    init_data = data.get('initData')
+    
+    if not validate_telegram_data(init_data):
+        logger.warning("Invalid Telegram data received")
+        return jsonify({'error': 'Invalid data'}), 400
+    
     previous_questions = data.get('previous_questions', [])
     previous_answers = data.get('previous_answers', [])
     telegram_data = data.get('telegram_data', {})
-
-    if not validate_telegram_data(telegram_data):
-        logger.error("Invalid Telegram data in question generation request")
-        return jsonify({"error": "Invalid Telegram data"}), 400
-
     logger.debug(f"Previous questions: {previous_questions}")
     logger.debug(f"Previous answers: {previous_answers}")
     logger.debug(f"Telegram data: {telegram_data}")
@@ -225,14 +225,15 @@ def generate_question():
 def classify_personality():
     logger.info("Received request to classify personality")
     data = request.json
+    init_data = data.get('initData')
+    
+    if not validate_telegram_data(init_data):
+        logger.warning("Invalid Telegram data received")
+        return jsonify({'error': 'Invalid data'}), 400
+    
     questions = data.get('questions', [])
     answers = data.get('answers', [])
     telegram_data = data.get('telegram_data', {})
-
-    if not validate_telegram_data(telegram_data):
-        logger.error("Invalid Telegram data in personality classification request")
-        return jsonify({"error": "Invalid Telegram data"}), 400
-
     logger.debug(f"Questions for classification: {questions}")
     logger.debug(f"Answers for classification: {answers}")
     logger.debug(f"Telegram data: {telegram_data}")
